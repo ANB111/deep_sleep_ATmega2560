@@ -1,11 +1,12 @@
 #include <Wire.h>
 #include <RTClib.h>
 #include <LiquidCrystal.h>
+#include <LowPower.h>
 
 RTC_DS3231 rtc;
 LiquidCrystal lcd(12, 11, 6, 5, 4, 3);
 
-#define CLOCK_INTERRUPT_PIN 2
+#define CLOCK_INTERRUPT_PIN 18
 
 volatile bool alarmTriggered = false;
 
@@ -29,7 +30,6 @@ void setup() {
   
   pinMode(CLOCK_INTERRUPT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN), onAlarm, FALLING);
-  
   rtc.clearAlarm(1);
 
   rtc.writeSqwPinMode(DS3231_OFF);
@@ -50,8 +50,7 @@ void print2digits(int number) {
   }
   lcd.print(number);
 }
-
-void loop() {
+void printDateTime(){
   DateTime now = rtc.now();
 
   lcd.setCursor(0, 0);
@@ -67,6 +66,22 @@ void loop() {
   print2digits(now.minute());
   lcd.print(":");
   print2digits(now.second());
+}
+
+void loop() {
+  
+
+  // Enter power down state with ADC and BOD module disabled.
+  // Wake up when wake up pin is low.
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+
+  detachInterrupt(0);
+
+  digitalWrite(13, HIGH);
+  for (int i = 0; i < 10; ++i){
+    printDateTime();
+    delay(1000);
+  }
 
   if (alarmTriggered) {
     // Leer la temperatura
@@ -85,5 +100,6 @@ void loop() {
     lcd.print("                ");
     rtc.clearAlarm(1);
     alarmTriggered = false;
+    digitalWrite(13, LOW);
   }
 }
