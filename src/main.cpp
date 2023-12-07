@@ -2,13 +2,16 @@
 #include <RTClib.h>
 #include <LiquidCrystal.h>
 #include <LowPower.h>
+#include <SD.h>
 
 RTC_DS3231 rtc;
-LiquidCrystal lcd(12, 11, 6, 5, 4, 3);
 
 #define CLOCK_INTERRUPT_PIN 18
+#define CHIP_SELECT_PIN 53
+#define LED_PIN 13
 
 volatile bool alarmTriggered = false;
+volatile float temperature;
 
 void onAlarm() {
   alarmTriggered = true;
@@ -17,10 +20,8 @@ void onAlarm() {
 void setup() {
   Serial.begin(9600);
   
-  lcd.begin(16, 2);
-  lcd.setCursor(0, 0);
   if (!rtc.begin()) {
-    lcd.print("RTC ERROR");
+    Serial.print("RTC ERROR");
     while (1);
   }
 
@@ -38,35 +39,20 @@ void setup() {
   DateTime alarmTime(2023, 11, 28, 10, 40, 0);
 
   if (!rtc.setAlarm1(alarmTime, DS3231_A1_Second)) {
-    Serial.println("Error al configurar alarma");
+    Serial.print("Error al configurar alarma");
   } else {
-    Serial.println("Alarma configurada correctamente");
+    //Serial.print("Alarma configurada correctamente");
   }
+
+  if (!SD.begin(CHIP_SELECT_PIN)) {
+    Serial.println("Error al iniciar la tarjeta SD");
+    while (1);
+  }
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
 }
 
-void print2digits(int number) {
-  if (number < 10) {
-    lcd.print("0");
-  }
-  lcd.print(number);
-}
-void printDateTime(){
-  DateTime now = rtc.now();
-
-  lcd.setCursor(0, 0);
-  lcd.print(now.year());
-  lcd.print("-");
-  print2digits(now.month());
-  lcd.print("-");
-  print2digits(now.day());
-  lcd.print(" ");
-  lcd.setCursor(0, 1);
-  print2digits(now.hour());
-  lcd.print(":");
-  print2digits(now.minute());
-  lcd.print(":");
-  print2digits(now.second());
-}
 
 void loop() {
   
@@ -76,28 +62,29 @@ void loop() {
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 
   detachInterrupt(0);
-
   digitalWrite(13, HIGH);
-  for (int i = 0; i < 10; ++i){
-    printDateTime();
-    delay(1000);
-  }
+
+  DateTime now = rtc.now();
+
 
   if (alarmTriggered) {
     // Leer la temperatura
-    float temperature = rtc.getTemperature();
+    temperature = rtc.getTemperature();
 
-    lcd.setCursor(0, 0);
-    lcd.print("Temp: ");
-    lcd.print(temperature);
-    lcd.print(" C    ");
-    lcd.setCursor(0, 1);
-    lcd.print("                ");
+    File dataFile = SD.open("data.txt", FILE_WRITE);
 
-    delay(5000);
+    if (dataFile) {
+      dataFile.print(now.timestamp());
+      dataFile.print(" Temp: ");
+      dataFile.print(temperature);
+      dataFile.println(" C");
+      dataFile.close();
+      //Serial.println("Datos guardados correctamente");
+      //delay(10);
+    } else {
+      //Serial.println("Error al abrir el archivo para escritura");
+    }
 
-    lcd.setCursor(0, 0);
-    lcd.print("                ");
     rtc.clearAlarm(1);
     alarmTriggered = false;
     digitalWrite(13, LOW);
