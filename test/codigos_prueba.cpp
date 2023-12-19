@@ -67,7 +67,7 @@ ISR(INT0_vect) {
 
 //codigo 2
 
-
+/*
 #include <Wire.h>
 #include <RTClib.h>
 #include <LiquidCrystal.h>
@@ -120,7 +120,7 @@ void loop() {
   delay(1000);
   
 }
-
+*/
 
 //CODIGO DE ARDUINO CMO SERVIDOR
 

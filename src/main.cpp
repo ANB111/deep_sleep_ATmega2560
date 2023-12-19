@@ -1,13 +1,12 @@
 #include <Wire.h>
 #include <RTClib.h>
-#include <LiquidCrystal.h>
 #include <LowPower.h>
 #include <SD.h>
 
 RTC_DS3231 rtc;
 
 #define CLOCK_INTERRUPT_PIN 18
-#define CHIP_SELECT_PIN 53
+#define CHIP_SELECT_PIN 40
 #define LED_PIN 13
 
 volatile bool alarmTriggered = false;
@@ -50,6 +49,8 @@ void setup() {
   }
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  Serial.println("Inicio correcto");
+  delay(300);
 
 }
 
@@ -80,9 +81,9 @@ void loop() {
       dataFile.println(" C");
       dataFile.close();
       Serial.println("Datos guardados correctamente");
-      delay(100);
+      delay(300);
     } else {
-      //Serial.println("Error al abrir el archivo para escritura");
+      Serial.println("Error al abrir el archivo para escritura");
     }
 
     rtc.clearAlarm(1);
