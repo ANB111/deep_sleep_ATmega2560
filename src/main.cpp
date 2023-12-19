@@ -79,8 +79,8 @@ void loop() {
       dataFile.print(temperature);
       dataFile.println(" C");
       dataFile.close();
-      //Serial.println("Datos guardados correctamente");
-      //delay(10);
+      Serial.println("Datos guardados correctamente");
+      delay(100);
     } else {
       //Serial.println("Error al abrir el archivo para escritura");
     }
