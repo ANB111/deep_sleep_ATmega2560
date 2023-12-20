@@ -2,132 +2,168 @@
 #include <SPI.h>
 #include <Ethernet2.h>
 #include <RTClib.h>
-#include <LowPower.h>
 #include <SdFat.h>
+#include <LowPower.h>
 
-// Define los pines para el bus SPI por software
-const uint8_t SOFT_MISO_PIN = 9;
-const uint8_t SOFT_MOSI_PIN = 8;
-const uint8_t SOFT_SCK_PIN = 10;
-const uint8_t SD_CS_PIN = 38; // Pin de chip select para la tarjeta SD
 
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 IPAddress ip(192, 168, 0, 111);
 EthernetServer server(80);
-
 RTC_DS3231 rtc;
-
-#define CLOCK_INTERRUPT_PIN 18
-
-volatile bool alarmTriggered = false;
-volatile float temperature;
-
-void onAlarm() {
-  alarmTriggered = true;
-}
-
-SdFat softSD; // Instancia de SdFat para utilizar el bus SPI por software
 
 void setup() {
   Serial.begin(9600);
   while (!Serial);
-
   Ethernet.init(53);
   Ethernet.begin(mac, ip);
   server.begin();
-  Serial.println("server is at ");
-  Serial.println(Ethernet.localIP());
 
   if (!rtc.begin()) {
     Serial.println("RTC ERROR");
     while (1);
   }
-
   if (rtc.lostPower()) {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
-  pinMode(CLOCK_INTERRUPT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN), onAlarm, FALLING);
-  rtc.clearAlarm(1);
-  rtc.writeSqwPinMode(DS3231_OFF);
-  rtc.disableAlarm(2);
-  DateTime alarmTime(2023, 11, 28, 10, 40, 0);
-
-  if (!rtc.setAlarm1(alarmTime, DS3231_A1_Second)) {
-    Serial.println("Error al configurar alarma");
-  }
-
-  // Inicialización del bus SPI por software para la tarjeta SD
-  if (!softSD.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_FULL_SPEED))) {
-    Serial.println("Error al inicializar la tarjeta SD");
-    while (1);
-  }
-
-  Serial.println("Inicio correcto");
+  Serial.println("Server is at:");
+  Serial.println(Ethernet.localIP());
 }
+
+void sendHelloMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Hello Page</title></head>");
+  client.println("<body>");
+  client.println("<h1>Hello from Arduino!</h1>");
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendTimeMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Time Page</title></head>");
+  client.println("<body>");
+  client.print("<h1>Current time: ");
+  client.print(rtc.now().timestamp());
+  client.println("</h1>");
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendTemperatureMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Temperature Page</title></head>");
+  client.println("<body>");
+  client.print("<h1>Temperature: ");
+  client.print(rtc.getTemperature());
+  client.println(" °C</h1>");
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendDefaultMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>INICIO</title></head>");
+  client.println("<body>");
+  client.println("<h1>Bienvenido al servidor Arduino</h1>");
+  client.println("<h2>Paginas Disponibles:</h2>");
+  client.println("<ul>");
+  client.println("<li><a href=\"/hello\">Hello Page</a></li>");
+  client.println("<li><a href=\"/time\">Time Page</a></li>");
+  client.println("<li><a href=\"/temperature\">Temperature Page</a></li>");
+  client.println("<li><a href=\"/update-time\">Actualizar Hora</a></li>");
+  client.println("</ul>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendUpdatePage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Update Time Page</title></head>");
+  client.println("<body>");
+  client.println("<h1>Update Time</h1>");
+  client.println("<form action=\"/update-time\" method=\"get\">");
+  client.println("Enter new time: <input type=\"datetime-local\" name=\"time\"><br>"); // Utilizamos datetime-local para la entrada de fecha y hora
+  client.println("<input type=\"submit\" value=\"Submit\">");
+  client.println("</form>");
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void updateTime(String request) {
+  String timeString = "";
+  int timeStart = request.indexOf("time="); // Buscamos el inicio del parámetro de tiempo
+  if (timeStart != -1) {
+    timeString = request.substring(timeStart + 5); // Extraemos el valor de tiempo después del "time="
+    timeString.replace("+", " "); // Reemplazamos el símbolo "+" con un espacio para que sea legible para la librería RTC
+    const char* timeCharArray = timeString.c_str(); // Convertimos el String a un array de caracteres
+    int year, month, day, hour, minute, second;
+    if (sscanf(timeCharArray, "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6) {
+      DateTime newTime(year, month, day, hour, minute, second);
+      rtc.adjust(newTime);
+      Serial.println("RTC updated");
+    }
+  }
+}
+
 
 void loop() {
   EthernetClient client = server.available();
+
   if (client) {
-    Serial.println("new client");
-    boolean currentLineIsBlank = true;
+    Serial.println("New client");
     while (client.connected()) {
       if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-        if (c == '\n' && currentLineIsBlank) {
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println("Connection: close");
-          client.println("Refresh: 5");
-          client.println();
-          client.println("<!DOCTYPE HTML>");
-          client.println("<html>");
-          for (int analogChannel = 0; analogChannel < 6; analogChannel++) {
-            int sensorReading = analogRead(analogChannel);
-            client.print("analog input ");
-            client.print(analogChannel);
-            client.print(" is ");
-            client.print(sensorReading);
-            client.println("<br />");
-          }
-          client.println("</html>");
-          break;
+        String request = client.readStringUntil('\r');
+        client.flush();
+        Serial.println(request);
+
+        if (request.indexOf("GET /hello") != -1) {
+          sendHelloMessage(client);
+        } else if (request.indexOf("GET /time") != -1) {
+          sendTimeMessage(client);
+        } else if (request.indexOf("GET /temperature") != -1) {
+          sendTemperatureMessage(client);
+        } else if (request.indexOf("GET /update-time") != -1) {
+          sendUpdatePage(client);
+          updateTime(request);
+        } else {
+          sendDefaultMessage(client);
         }
-        if (c == '\n') {
-          currentLineIsBlank = true;
-        } else if (c != '\r') {
-          currentLineIsBlank = false;
-        }
+        break;
       }
     }
     delay(1);
     client.stop();
-    Serial.println("client disconnected");
-  }
-
-  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
-
-  detachInterrupt(0);
-  DateTime now = rtc.now();
-
-  if (alarmTriggered) {
-    temperature = rtc.getTemperature();
-    File dataFile = softSD.open("data.txt", FILE_WRITE);
-
-    if (dataFile) {
-      dataFile.print(now.timestamp());
-      dataFile.print(" Temp: ");
-      dataFile.print(temperature);
-      dataFile.println(" C");
-      dataFile.close();
-      Serial.println("Datos guardados correctamente");
-    } else {
-      Serial.println("Error al abrir el archivo para escritura");
-    }
-
-    rtc.clearAlarm(1);
-    alarmTriggered = false;
+    Serial.println("Client disconnected");
   }
 }

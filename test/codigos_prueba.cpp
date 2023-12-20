@@ -400,3 +400,103 @@ void loop() {
     digitalWrite(13, LOW);
   }
 }
+
+
+//codigo de servidor funcionando 
+
+#include <Wire.h>
+#include <SPI.h>
+#include <Ethernet2.h>
+#include <RTClib.h>
+#include <SdFat.h>
+#include <LowPower.h>
+
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(192, 168, 0, 111);
+EthernetServer server(80);
+
+void setup() {
+  Serial.begin(9600);
+  while (!Serial);
+  Ethernet.init(53);
+  Ethernet.begin(mac, ip);
+  server.begin();
+
+  Serial.println("Server is at:");
+  Serial.println(Ethernet.localIP());
+}
+
+
+void sendHelloMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Hello Page</title></head>");
+  client.println("<body>");
+  client.println("<h1>Hello from Arduino!</h1>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendAboutMessage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>About Page</title></head>");
+  client.println("<body>");
+  client.println("<h1>About Arduino Server</h1>");
+  client.println("<p>This is an Arduino server handling different routes.</p>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void sendDefaultMessage(EthernetClient client) {
+  client.println("HTTP/1.1 404 Not Found");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Error 404</title></head>");
+  client.println("<body>");
+  client.println("<h1>Error 404: Page Not Found</h1>");
+  client.println("<p>Sorry, the requested page was not found.</p>");
+  client.println("</body>");
+  client.println("</html>");
+}
+
+void loop() {
+  EthernetClient client = server.available();
+
+  if (client) {
+    Serial.println("New client");
+    while (client.connected()) {
+      if (client.available()) {
+        String request = client.readStringUntil('\r');
+        client.flush();
+        Serial.println(request);
+
+        if (request.indexOf("GET /hello") != -1) {
+          // Respuesta a la ruta /hello
+          sendHelloMessage(client);
+        } else if (request.indexOf("GET /about") != -1) {
+          // Respuesta a la ruta /about
+          sendAboutMessage(client);
+        } else {
+          // Respuesta por defecto para rutas no reconocidas
+          sendDefaultMessage(client);
+        }
+        break;
+      }
+    }
+    delay(1);
+    client.stop();
+    Serial.println("Client disconnected");
+  }
+}
