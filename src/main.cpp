@@ -2,8 +2,8 @@
 #include <SPI.h>
 #include <Ethernet2.h>
 #include <RTClib.h>
-#include <SdFat.h>
 #include <LowPower.h>
+
 
 
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
@@ -15,7 +15,7 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
   Ethernet.init(53);
-  Ethernet.begin(mac, ip);
+  Ethernet.begin(mac);
   server.begin();
 
   if (!rtc.begin()) {
@@ -26,20 +26,20 @@ void setup() {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
-  Serial.println("Server is at:");
+  Serial.println("Servidor en:");
   Serial.println(Ethernet.localIP());
 }
 
-void sendHelloMessage(EthernetClient client) {
+void sendData(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: text/html");
   client.println("Connection: close");
   client.println();
   client.println("<!DOCTYPE HTML>");
   client.println("<html>");
-  client.println("<head><title>Hello Page</title></head>");
+  client.println("<head><title>Descarga de datos</title></head>");
   client.println("<body>");
-  client.println("<h1>Hello from Arduino!</h1>");
+  client.println("<h1>Descargar Datos del Servidor!</h1>");
   client.println("<a href=\"/\">Return</a>");
   client.println("</body>");
   client.println("</html>");
@@ -52,9 +52,9 @@ void sendTimeMessage(EthernetClient client) {
   client.println();
   client.println("<!DOCTYPE HTML>");
   client.println("<html>");
-  client.println("<head><title>Time Page</title></head>");
+  client.println("<head><title>Fecha y Hora</title></head>");
   client.println("<body>");
-  client.print("<h1>Current time: ");
+  client.print("<h1>Fecha y hora actual: ");
   client.print(rtc.now().timestamp());
   client.println("</h1>");
   client.println("<a href=\"/\">Return</a>");
@@ -69,9 +69,9 @@ void sendTemperatureMessage(EthernetClient client) {
   client.println();
   client.println("<!DOCTYPE HTML>");
   client.println("<html>");
-  client.println("<head><title>Temperature Page</title></head>");
+  client.println("<head><title>Temperatura</title></head>");
   client.println("<body>");
-  client.print("<h1>Temperature: ");
+  client.print("<h1>Temperatura: ");
   client.print(rtc.getTemperature());
   client.println(" °C</h1>");
   client.println("<a href=\"/\">Return</a>");
@@ -91,9 +91,9 @@ void sendDefaultMessage(EthernetClient client) {
   client.println("<h1>Bienvenido al servidor Arduino</h1>");
   client.println("<h2>Paginas Disponibles:</h2>");
   client.println("<ul>");
-  client.println("<li><a href=\"/hello\">Hello Page</a></li>");
-  client.println("<li><a href=\"/time\">Time Page</a></li>");
-  client.println("<li><a href=\"/temperature\">Temperature Page</a></li>");
+  client.println("<li><a href=\"/data\">Descargar Datos</a></li>");
+  client.println("<li><a href=\"/time\">Hora del Arduino</a></li>");
+  client.println("<li><a href=\"/temperature\">Temperatura Page</a></li>");
   client.println("<li><a href=\"/update-time\">Actualizar Hora</a></li>");
   client.println("</ul>");
   client.println("</body>");
@@ -107,12 +107,12 @@ void sendUpdatePage(EthernetClient client) {
   client.println();
   client.println("<!DOCTYPE HTML>");
   client.println("<html>");
-  client.println("<head><title>Update Time Page</title></head>");
+  client.println("<head><title>Actualizar Fecha y Hora</title></head>");
   client.println("<body>");
-  client.println("<h1>Update Time</h1>");
+  client.println("<h1>Actualizar Fecha y Hora</h1>");
   client.println("<form action=\"/update-time\" method=\"get\">");
-  client.println("Enter new time: <input type=\"datetime-local\" name=\"time\"><br>"); // Utilizamos datetime-local para la entrada de fecha y hora
-  client.println("<input type=\"submit\" value=\"Submit\">");
+  client.println("Ingrese la nueva fehca y hora: <input type=\"datetime-local\" name=\"time\"><br>"); // Utilizamos datetime-local para la entrada de fecha y hora
+  client.println("<input type=\"submit\" value=\"Actualizar\">");
   client.println("</form>");
   client.println("<a href=\"/\">Return</a>");
   client.println("</body>");
@@ -121,16 +121,19 @@ void sendUpdatePage(EthernetClient client) {
 
 void updateTime(String request) {
   String timeString = "";
-  int timeStart = request.indexOf("time="); // Buscamos el inicio del parámetro de tiempo
+
+  int timeStart = request.indexOf("time="); // Buscar el inicio del parámetro de tiempo
   if (timeStart != -1) {
-    timeString = request.substring(timeStart + 5); // Extraemos el valor de tiempo después del "time="
-    timeString.replace("+", " "); // Reemplazamos el símbolo "+" con un espacio para que sea legible para la librería RTC
-    const char* timeCharArray = timeString.c_str(); // Convertimos el String a un array de caracteres
-    int year, month, day, hour, minute, second;
-    if (sscanf(timeCharArray, "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6) {
-      DateTime newTime(year, month, day, hour, minute, second);
+    timeString = request.substring(timeStart + 5); // Extraer el valor de tiempo después de "time="TC
+    timeString.replace("%3A", ":");// Reemplazar los carcateres "%3A" por ":"
+
+    const char* timeCharArray = timeString.c_str(); // Convertir el String a un array de caracteres
+    int year, month, day, hour, minute;
+
+    if (sscanf(timeCharArray, "%d-%d-%dT%d:%d", &year, &month, &day, &hour, &minute) == 5) {
+      DateTime newTime(year, month, day, hour, minute, 0);
       rtc.adjust(newTime);
-      Serial.println("RTC updated");
+      Serial.println("RTC actualizado");
     }
   }
 }
@@ -147,8 +150,8 @@ void loop() {
         client.flush();
         Serial.println(request);
 
-        if (request.indexOf("GET /hello") != -1) {
-          sendHelloMessage(client);
+        if (request.indexOf("GET /data") != -1) {
+          sendData(client);
         } else if (request.indexOf("GET /time") != -1) {
           sendTimeMessage(client);
         } else if (request.indexOf("GET /temperature") != -1) {
