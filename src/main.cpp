@@ -19,8 +19,10 @@ volatile bool alarmTriggered = false;
 volatile bool pulsadorServidor = false;
 
 void onAlarm() {
+  Serial.println("Alarma Activada...");
   alarmTriggered = true;
 }
+
 void onPulsador() {
   pulsadorServidor = true;
 }
@@ -67,8 +69,6 @@ void setup() {
   Serial.println("Servidor en:");
   Serial.println(Ethernet.localIP());
 }
-
-
 
 void sendTimeMessage(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
@@ -131,7 +131,6 @@ void sendDefaultMessage(EthernetClient client) {
   client.println("</html>");
 }
 
-
 void sendUpdatePage(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: text/html");
@@ -171,96 +170,32 @@ void updateTime(String request) {
 }
 
 void acquireAndSaveData() {
-  //adquirir datos y guardarlos en la memoria sd
-
   float temperature = rtc.getTemperature();
+  DateTime now = rtc.now();
 
-  Serial.print(rtc.now().timestamp());
-  Serial.print(" Temp: ");
-  Serial.print(temperature);
-  Serial.println(" C");
+  // Generar un nuevo nombre de archivo basado en el año y mes actual
+  char filename[11];
+  snprintf(filename, 11, "%04d%02d.txt", now.year(), now.month());
 
-  File dataFile = SD.open("data.txt", FILE_WRITE);
+  File dataFile = SD.open(filename, FILE_WRITE);
   if (dataFile) {
-    dataFile.print(rtc.now().timestamp());
+    Serial.print("Archivo: ");
+    Serial.println(filename);
+
+    // Escribir los datos en el archivo actual
+    dataFile.print(now.timestamp());
     dataFile.print(" Temp: ");
     dataFile.print(temperature);
     dataFile.println(" C");
+
+    // Cerrar el archivo
     dataFile.close();
+    Serial.println("Datos escritos en el archivo existente correctamente.");
   } else {
-      Serial.println("Error al abrir el archivo para escritura");
+      Serial.print("Error al abrir el archivo: ");
+      Serial.println(filename);
   }
-
 }
-
-
-
-void sendDownloadPage(EthernetClient client) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html");
-  client.println("Connection: close");
-  client.println();
-  client.println("<!DOCTYPE HTML>");
-  client.println("<html>");
-  client.println("<head><title>Archivos Disponibles</title></head>");
-  client.println("<body>");
-  client.println("<h1>Archivos Disponibles:</h1>");
-
-  File root = SD.open("/");
-  while (true) {
-    File entry = root.openNextFile();
-    if (!entry) {
-      break;
-    }
-
-    if (entry.isDirectory()) {
-      client.print("<p>Directorio: ");
-    } else {
-      client.print("<p>");
-      client.print(entry.name());
-      client.print(" <a href='/download/");
-      client.print(entry.name());
-      client.print("'>Descargar</a>");
-      client.print(" <form action='/delete' method='post' style='display:inline;'>");
-      client.print("<input type='hidden' name='filename' value='");
-      client.print(entry.name());
-      client.print("'>");
-      client.print("<input type='submit' value='Eliminar'>");
-      client.print("</form>");
-      client.println("</p>");
-    }
-    entry.close();
-  }
-  root.close();
-
-  client.println("<a href=\"/\">Return</a>");
-  client.println("</body>");
-  client.println("</html>");
-
-  client.stop();
-}
-
-void handleDeleteRequest(EthernetClient client, String request) {
-  int filenameStart = request.indexOf("filename=") + 9;
-  int filenameEnd = request.indexOf(" HTTP/1.1");
-  String filenameToDelete = request.substring(filenameStart, filenameEnd);
-
-  if (SD.remove(filenameToDelete.c_str())) {
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/html");
-    client.println("Connection: close");
-    client.println();
-    client.println("<h1>Archivo eliminado: " + filenameToDelete + "</h1>");
-  } else {
-    client.println("HTTP/1.1 500 Internal Server Error");
-    client.println("Content-Type: text/html");
-    client.println();
-    client.println("<h1>Error al eliminar el archivo</h1>");
-  }
-
-  client.stop();
-}
-
 
 void handleDownloadRequest(EthernetClient client, String request) {
   int filenameStart = request.indexOf("/download/") + 10;
@@ -289,9 +224,116 @@ void handleDownloadRequest(EthernetClient client, String request) {
     client.println("Content-Type: text/html");
     client.println();
     client.println("<h1>Error 404: Archivo no encontrado</h1>");
+    client.println("<a href=\"/\">Return</a>");
   }
 
   client.stop();
+}
+
+String urlDecode(String input) {
+  String output = "";
+  char c;
+  for (int i = 0; i < input.length(); i++) {
+    c = input.charAt(i);
+    if (c == '+') {
+      output += ' ';
+    } else if (c == '%') {
+      char hex[3];
+      input.substring(i + 1, i + 3).toCharArray(hex, 3);
+      output += char(strtol(hex, NULL, 16));
+      i += 2;
+    } else {
+      output += c;
+    }
+  }
+  return output;
+}
+
+void sendDownloadPage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Archivos Disponibles</title></head>");
+  client.println("<body>");
+  client.println("<h1>Archivos Disponibles:</h1>");
+
+  File root = SD.open("/");
+  while (File entry = root.openNextFile()) {
+    client.print("<p>");
+    client.print(entry.name());
+    client.print(" <a href='/download/");
+    client.print(entry.name());
+    client.print("'>Descargar</a>");
+
+    // Enlace de eliminación directa
+    client.print(" <a href='/delete?filename=");
+    client.print(entry.name());
+    client.print("'>Eliminar</a>");
+
+    client.println("</p>");
+    entry.close();
+  }
+  root.close();
+
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+
+  client.stop();
+}
+
+void handleDeleteRequest(EthernetClient client, String request) {
+  // Buscar el inicio del contenido GET
+  int contentStart = request.indexOf("?filename=") + 10;
+
+  if (contentStart != -1) {
+    // Extraer el nombre del archivo de la solicitud GET
+    int contentEnd = request.indexOf(" HTTP/1.1");
+    if (contentEnd == -1) {
+      // Manejar el caso donde no se encuentra " HTTP/1.1"
+      contentEnd = request.length();
+    }
+
+    String filenameToDelete = request.substring(contentStart, contentEnd);
+
+    // Decodificar la URL
+    filenameToDelete = urlDecode(filenameToDelete);
+
+    // Agregar mensaje de depuración
+    Serial.print("Intentando eliminar el archivo: ");
+    Serial.println(filenameToDelete);
+
+    // Imprimir el nombre del archivo antes de intentar eliminarlo
+    Serial.print("Nombre del archivo a eliminar: ");
+    Serial.println(filenameToDelete);
+
+    if (SD.remove(filenameToDelete)) {
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/html");
+      client.println("Connection: close");
+      client.println();
+      client.println("<h1>Archivo eliminado: " + filenameToDelete + "</h1>");
+      client.println("<a href=\"/\">Return</a>");
+      client.stop();
+    } else {
+      client.println("HTTP/1.1 500 Internal Server Error");
+      client.println("Content-Type: text/html");
+      client.println();
+      client.println("<h1>Error al eliminar el archivo</h1>");
+      client.stop();
+    }
+  } else {
+    // La solicitud GET no contiene el parámetro necesario
+    client.println("HTTP/1.1 400 Bad Request");
+    client.println("Content-Type: text/html");
+    client.println();
+    client.println("<h1>Error 400: Solicitud incorrecta</h1>");
+    client.println("<a href=\"/\">Return</a>");
+    client.stop();
+  }
 }
 
 void enableServer() {
@@ -320,7 +362,7 @@ void enableServer() {
           updateTime(request);
         } else if (request.indexOf("GET /download/") != -1) {
           handleDownloadRequest(client, request);
-        } else if (request.indexOf("POST /delete") != -1) {
+        } else if (request.indexOf("GET /delete") != -1) {
           handleDeleteRequest(client, request);
         } else {
           sendDefaultMessage(client);
@@ -336,23 +378,24 @@ void enableServer() {
 
 
 void loop() {
-  detachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN));  // Deshabilitar la interrupción del pin CLOCK_INTERRUPT_PIN
-
+  Serial.println("----inicio---");
+  //detachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN));
   if (alarmTriggered) {
     acquireAndSaveData();
-    
     alarmTriggered = false;
+    
   }
 
   while (pulsadorServidor) {
     enableServer(); // Habilitar el servidor
   }
-
-  attachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN), onAlarm, FALLING); 
-  rtc.clearAlarm(1);
+  //attachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN), onAlarm, FALLING);
+  
   // Dormir hasta que ocurra una interrupción
+  rtc.clearAlarm(1);
   Serial.println("A dormir...");
   delay(300);
+  
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
 
