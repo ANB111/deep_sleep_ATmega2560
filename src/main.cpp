@@ -55,7 +55,7 @@ void setup() {
   alarmTime = alarmTime + TimeSpan(0, 0, 1, 0);
 
 
-  if (!rtc.setAlarm1(alarmTime, DS3231_A1_Second)) {
+  if (!rtc.setAlarm1(alarmTime, DS3231_A1_PerSecond)) {
     Serial.print("Error al configurar alarma");
   }
 
@@ -68,37 +68,7 @@ void setup() {
   Serial.println(Ethernet.localIP());
 }
 
-void sendData(EthernetClient client) {
-  if (client) {
-    File dataFile = SD.open("data.txt");
 
-    if (dataFile) {
-      client.println("HTTP/1.1 200 OK");
-      client.println("Content-Type: application/octet-stream");
-      client.println("Content-Disposition: attachment; filename=data.txt");
-      client.println("Connection: close");
-      client.println();
-
-      // Enviar el contenido del archivo
-      while (dataFile.available()) {
-        char data = dataFile.read();
-        client.write(data);
-      }
-      // Cerrar el archivo
-      dataFile.close();
-      client.println("<a href=\"/\">Return</a>");
-    } else {
-      // Si no se puede abrir el archivo, enviar una respuesta de error
-      client.println("HTTP/1.1 404 Not Found");
-      client.println("Content-Type: text/html");
-      client.println();
-      client.println("<h1>Error 404: Archivo no encontrado</h1>");
-      client.println("<a href=\"/\">Return</a>");
-    }
-
-    client.stop();
-  }
-}
 
 void sendTimeMessage(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
@@ -223,6 +193,107 @@ void acquireAndSaveData() {
 
 }
 
+
+
+void sendDownloadPage(EthernetClient client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE HTML>");
+  client.println("<html>");
+  client.println("<head><title>Archivos Disponibles</title></head>");
+  client.println("<body>");
+  client.println("<h1>Archivos Disponibles:</h1>");
+
+  File root = SD.open("/");
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) {
+      break;
+    }
+
+    if (entry.isDirectory()) {
+      client.print("<p>Directorio: ");
+    } else {
+      client.print("<p>");
+      client.print(entry.name());
+      client.print(" <a href='/download/");
+      client.print(entry.name());
+      client.print("'>Descargar</a>");
+      client.print(" <form action='/delete' method='post' style='display:inline;'>");
+      client.print("<input type='hidden' name='filename' value='");
+      client.print(entry.name());
+      client.print("'>");
+      client.print("<input type='submit' value='Eliminar'>");
+      client.print("</form>");
+      client.println("</p>");
+    }
+    entry.close();
+  }
+  root.close();
+
+  client.println("<a href=\"/\">Return</a>");
+  client.println("</body>");
+  client.println("</html>");
+
+  client.stop();
+}
+
+void handleDeleteRequest(EthernetClient client, String request) {
+  int filenameStart = request.indexOf("filename=") + 9;
+  int filenameEnd = request.indexOf(" HTTP/1.1");
+  String filenameToDelete = request.substring(filenameStart, filenameEnd);
+
+  if (SD.remove(filenameToDelete.c_str())) {
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println("Connection: close");
+    client.println();
+    client.println("<h1>Archivo eliminado: " + filenameToDelete + "</h1>");
+  } else {
+    client.println("HTTP/1.1 500 Internal Server Error");
+    client.println("Content-Type: text/html");
+    client.println();
+    client.println("<h1>Error al eliminar el archivo</h1>");
+  }
+
+  client.stop();
+}
+
+
+void handleDownloadRequest(EthernetClient client, String request) {
+  int filenameStart = request.indexOf("/download/") + 10;
+  int filenameEnd = request.indexOf(" HTTP/1.1");
+  String filename = request.substring(filenameStart, filenameEnd);
+
+  File downloadFile = SD.open(filename);
+  if (downloadFile) {
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: application/octet-stream");
+    client.println("Content-Disposition: attachment; filename=" + filename);
+    client.println("Connection: close");
+    client.println();
+
+    // Enviar el contenido del archivo
+    while (downloadFile.available()) {
+      char data = downloadFile.read();
+      client.write(data);
+    }
+
+    // Cerrar el archivo
+    downloadFile.close();
+  } else {
+    // Si no se puede abrir el archivo, enviar una respuesta de error
+    client.println("HTTP/1.1 404 Not Found");
+    client.println("Content-Type: text/html");
+    client.println();
+    client.println("<h1>Error 404: Archivo no encontrado</h1>");
+  }
+
+  client.stop();
+}
+
 void enableServer() {
   EthernetClient client = server.available();
 
@@ -239,7 +310,7 @@ void enableServer() {
           pulsadorServidor = false;
           break;
         } else if (request.indexOf("GET /data") != -1) {
-          sendData(client);
+          sendDownloadPage(client);
         } else if (request.indexOf("GET /time") != -1) {
           sendTimeMessage(client);
         } else if (request.indexOf("GET /temperature") != -1) {
@@ -247,6 +318,10 @@ void enableServer() {
         } else if (request.indexOf("GET /update-time") != -1) {
           sendUpdatePage(client);
           updateTime(request);
+        } else if (request.indexOf("GET /download/") != -1) {
+          handleDownloadRequest(client, request);
+        } else if (request.indexOf("POST /delete") != -1) {
+          handleDeleteRequest(client, request);
         } else {
           sendDefaultMessage(client);
         }
@@ -261,19 +336,23 @@ void enableServer() {
 
 
 void loop() {
+  detachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN));  // Deshabilitar la interrupción del pin CLOCK_INTERRUPT_PIN
 
-  detachInterrupt(0);
   if (alarmTriggered) {
     acquireAndSaveData();
-    rtc.clearAlarm(1);
+    
     alarmTriggered = false;
   }
 
   while (pulsadorServidor) {
     enableServer(); // Habilitar el servidor
   }
-    // Dormir hasta que ocurra una interrupción
+
+  attachInterrupt(digitalPinToInterrupt(CLOCK_INTERRUPT_PIN), onAlarm, FALLING); 
+  rtc.clearAlarm(1);
+  // Dormir hasta que ocurra una interrupción
   Serial.println("A dormir...");
-  delay(3000);
+  delay(300);
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
+
